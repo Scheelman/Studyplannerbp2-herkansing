@@ -8,51 +8,58 @@ import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import nl.mikaildalli.studyplanner.model.Task;
+import nl.mikaildalli.studyplanner.service.TaskService;
 import nl.mikaildalli.studyplanner.util.Database;
+
 
 import java.time.LocalDate;
 import java.util.List;
 
-// Task View is de hoofscherm voor takenbeheer (CRUD)
-//Tableview met PropertyValueFactory (koppelt kolommen aan getters)
-//Buttons met setOnAction
-//Gridpane
-
-//Database
-//JOIN query  zodat status en categorie namen in tabel staan
+/*
+ * TaskView is het scherm voor takenbeheer.
+ * Hier staat vooral de JavaFX UI: tabel, knoppen, dialog en meldingen.
+ * De database wordt niet direct aangeroepen; dat gaat via TaskService.
+ */
 public class TaskView extends BorderPane {
 
-// TableView toont Task objecten
     private final TableView<Task> table = new TableView<>();
-//    Databse helper class (CRUD en select queries)
-    private final Database db = new Database();
+    private final TaskService taskService = new TaskService();
 
     public TaskView() {
         setPadding(new Insets(16));
-// UI knoppen
+
         Button nieuw = new Button("Nieuw");
         Button bewerk = new Button("Bewerk");
         Button verwijder = new Button("Verwijder");
         Button refresh = new Button("Refresh");
-// Event handlers
+
         nieuw.setOnAction(e -> openDialog(null));
+
         bewerk.setOnAction(e -> {
             Task t = table.getSelectionModel().getSelectedItem();
-            if (t == null) info("Selecteer eerst een taak.");
-            else openDialog(t);
+
+            if (t == null) {
+                info("Selecteer eerst een taak.");
+            } else {
+                openDialog(t);
+            }
         });
+
         verwijder.setOnAction(e -> deleteSelected());
         refresh.setOnAction(e -> load());
-// Bovenbalk met knoppen
+
         setTop(new HBox(10, new Label("Taken"), nieuw, bewerk, verwijder, refresh));
-// TableView instellen
+
         setupTable();
         setCenter(table);
-// Laden van de data
         load();
     }
-// Kolommen
-//    PropertyValueFactory zoekt kolommen
+
+    /*
+     * Maakt de kolommen van de TableView.
+     * PropertyValueFactory koppelt de kolomnaam aan de getter in Task.
+     * Bijvoorbeeld "title" gebruikt getTitle().
+     */
     private void setupTable() {
         TableColumn<Task, String> c1 = new TableColumn<>("Titel");
         c1.setCellValueFactory(new PropertyValueFactory<>("title"));
@@ -69,14 +76,27 @@ public class TaskView extends BorderPane {
         table.getColumns().addAll(c1, c2, c3, c4);
         table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
     }
-// Laadt taken opnieuw uit de databser en zet ze in de TableView
+
+    /*
+     * Haalt taken op via TaskService en toont ze in de tabel.
+     * Hierdoor blijft TaskView meer gericht op de UI.
+     */
     private void load() {
-        table.setItems(FXCollections.observableArrayList(db.getAllTasksWithJoin()));
+        table.setItems(FXCollections.observableArrayList(taskService.getAllTasks()));
     }
-// Delete met bevestiging
+
+    /*
+     * Verwijdert de geselecteerde taak.
+     * Eerst wordt gecontroleerd of er een taak geselecteerd is.
+     * Daarna vraagt de app bevestiging via een Alert.
+     */
     private void deleteSelected() {
         Task t = table.getSelectionModel().getSelectedItem();
-        if (t == null) { info("Selecteer eerst een taak."); return; }
+
+        if (t == null) {
+            info("Selecteer eerst een taak.");
+            return;
+        }
 
         Alert a = new Alert(Alert.AlertType.CONFIRMATION);
         a.setTitle("Verwijderen");
@@ -85,90 +105,149 @@ public class TaskView extends BorderPane {
 
         a.showAndWait().ifPresent(btn -> {
             if (btn == ButtonType.OK) {
-                db.deleteTaskById(t.getId());
+                taskService.deleteTask(t.getId());
                 load();
             }
         });
     }
-// Tekst voor:
-//   nieuwe taak, bestaande taken bijwerken
-//    Validatie
+
+    /*
+     * Deze dialog wordt gebruikt voor twee situaties:
+     * - nieuwe taak toevoegen
+     * - bestaande taak bewerken
+     *
+     * Als existing null is, gaat het om toevoegen.
+     * Als existing niet null is, gaat het om bewerken.
+     */
     private void openDialog(Task existing) {
         boolean edit = existing != null;
 
         Dialog<Void> d = new Dialog<>();
         d.setTitle(edit ? "Taak bewerken" : "Nieuwe taak");
+
         ButtonType save = new ButtonType(edit ? "Opslaan" : "Toevoegen", ButtonBar.ButtonData.OK_DONE);
         d.getDialogPane().getButtonTypes().addAll(save, ButtonType.CANCEL);
 
-// Form velden
         TextField tfTitle = new TextField();
+
         TextArea taDesc = new TextArea();
         taDesc.setPrefRowCount(4);
+
         DatePicker dp = new DatePicker();
-// ComboBoxes komen uit de database
+
         ComboBox<Database.IdName> cbStatus = new ComboBox<>();
         ComboBox<Database.IdName> cbCat = new ComboBox<>();
 
-        List<Database.IdName> statuses = db.getAllStatuses();
-        List<Database.IdName> cats = db.getAllCategories();
+        List<Database.IdName> statuses = taskService.getAllStatuses();
+        List<Database.IdName> cats = taskService.getAllCategories();
+
         cbStatus.setItems(FXCollections.observableArrayList(statuses));
         cbCat.setItems(FXCollections.observableArrayList(cats));
 
-//        Layout form met GridPane
         GridPane g = new GridPane();
-        g.setHgap(10); g.setVgap(10); g.setPadding(new Insets(10));
-        g.add(new Label("Titel:"), 0, 0); g.add(tfTitle, 1, 0);
-        g.add(new Label("Omschrijving:"), 0, 1); g.add(taDesc, 1, 1);
-        g.add(new Label("Deadline:"), 0, 2); g.add(dp, 1, 2);
-        g.add(new Label("Status:"), 0, 3); g.add(cbStatus, 1, 3);
-        g.add(new Label("Categorie:"), 0, 4); g.add(cbCat, 1, 4);
+        g.setHgap(10);
+        g.setVgap(10);
+        g.setPadding(new Insets(10));
 
-//        Edit : zet bestaande waardes terug in form
+        g.add(new Label("Titel:"), 0, 0);
+        g.add(tfTitle, 1, 0);
+
+        g.add(new Label("Omschrijving:"), 0, 1);
+        g.add(taDesc, 1, 1);
+
+        g.add(new Label("Deadline:"), 0, 2);
+        g.add(dp, 1, 2);
+
+        g.add(new Label("Status:"), 0, 3);
+        g.add(cbStatus, 1, 3);
+
+        g.add(new Label("Categorie:"), 0, 4);
+        g.add(cbCat, 1, 4);
+
+        /*
+         * Bij bewerken worden de bestaande waarden alvast ingevuld.
+         * Bij een nieuwe taak wordt standaard de eerste status gekozen.
+         */
         if (edit) {
             tfTitle.setText(existing.getTitle());
             taDesc.setText(existing.getDescription());
             dp.setValue(existing.getDeadline());
+
             cbStatus.getSelectionModel().select(findById(statuses, existing.getStatusId()));
+
             if (existing.getCategoryId() != null) {
                 cbCat.getSelectionModel().select(findById(cats, existing.getCategoryId()));
             }
-//            Status selecteren als er minstens 1 bestaat
         } else {
-            if (!statuses.isEmpty()) cbStatus.getSelectionModel().select(0);
+            if (!statuses.isEmpty()) {
+                cbStatus.getSelectionModel().select(0);
+            }
         }
 
         d.getDialogPane().setContent(g);
 
-// Knop van de tekst
         Button saveNode = (Button) d.getDialogPane().lookupButton(save);
+
+        /*
+         * EventFilter gebruik ik voor validatie.
+         * Met ev.consume() blijft de dialog open als de invoer niet klopt.
+         */
         saveNode.addEventFilter(javafx.event.ActionEvent.ACTION, ev -> {
             String title = tfTitle.getText().trim();
             Database.IdName st = cbStatus.getSelectionModel().getSelectedItem();
-//            Validatie: titel is verplicht
-            if (title.isEmpty()) { info("Titel is verplicht."); ev.consume(); return; }
-//            Validatie: status verplicht
-            if (st == null) { info("Kies een status."); ev.consume(); return; }
+
+            if (title.isEmpty()) {
+                info("Titel is verplicht.");
+                ev.consume();
+                return;
+            }
+
+            if (st == null) {
+                info("Kies een status.");
+                ev.consume();
+                return;
+            }
 
             String desc = taDesc.getText().trim();
             LocalDate deadline = dp.getValue();
+
             Database.IdName cat = cbCat.getSelectionModel().getSelectedItem();
             Integer catId = (cat == null) ? null : cat.getId();
-// CRUD voor update en insert
-            if (edit) db.updateTask(existing.getId(), title, desc, deadline, st.getId(), catId);
-            else db.insertTask(title, desc, deadline, st.getId(), catId);
-// Na opslaan: tabel opnieuw laden
+
+            /*
+             * Via TaskService wordt de juiste CRUD-actie uitgevoerd.
+             * Bij bewerken: update.
+             * Bij nieuwe taak: insert.
+             */
+            if (edit) {
+                taskService.updateTask(existing.getId(), title, desc, deadline, st.getId(), catId);
+            } else {
+                taskService.addTask(title, desc, deadline, st.getId(), catId);
+            }
+
             load();
         });
 
         d.showAndWait();
     }
-// Helper
+
+    /*
+     * Zoekt een status of categorie terug op basis van id.
+     * Dit is nodig om bij bewerken de juiste waarde in de ComboBox te selecteren.
+     */
     private Database.IdName findById(List<Database.IdName> list, int id) {
-        for (Database.IdName x : list) if (x.getId() == id) return x;
+        for (Database.IdName x : list) {
+            if (x.getId() == id) {
+                return x;
+            }
+        }
+
         return null;
     }
-// informatie popup
+
+    /*
+     * Simpele informatie-popup voor meldingen aan de gebruiker.
+     */
     private void info(String msg) {
         Alert a = new Alert(Alert.AlertType.INFORMATION);
         a.setTitle("Info");
